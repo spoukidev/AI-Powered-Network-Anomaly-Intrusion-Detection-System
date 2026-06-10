@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.env
+.venv/
+venv/
+
+ai-powered-nids/ml_engine/models/*.pkl
+ai-powered-nids/ml_engine/models/*.json
+ai-powered-nids/ml_engine/data/*.generated.csv
+ai-powered-nids/zeek_logs/*.rotated
+
+.DS_Store
+Thumbs.db

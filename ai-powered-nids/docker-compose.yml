@@ -1,0 +1,54 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.3
+    container_name: ids-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200 >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.14.3
+    container_name: ids-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  ml_engine:
+    image: python:3.11-slim
+    container_name: ids-ml-engine
+    working_dir: /app
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - MODEL_PATH=/app/models/random_forest_ids.pkl
+      - ZEEK_CONN_LOG=/app/zeek_logs/conn.log
+      - ALERT_INDEX=ids-alerts
+      - FLOW_INDEX=ids-flows
+      - MOCK_LOG_PRODUCER=true
+      - ALERT_THRESHOLD=0.70
+    volumes:
+      - ./ml_engine:/app
+      - ./zeek_logs:/app/zeek_logs
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt
+      && python train_model.py
+      && python real_time_detector.py"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+volumes:
+  elasticsearch-data:
