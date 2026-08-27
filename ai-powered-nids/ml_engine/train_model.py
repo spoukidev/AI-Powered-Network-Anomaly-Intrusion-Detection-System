@@ -21,7 +21,12 @@ from typing import Final
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import (
+    average_precision_score,
+    classification_report,
+    confusion_matrix,
+    roc_auc_score,
+)
 from sklearn.model_selection import train_test_split
 
 
@@ -34,6 +39,7 @@ MODEL_PATH: Final[Path] = MODEL_DIR / "random_forest_ids.pkl"
 METRICS_PATH: Final[Path] = MODEL_DIR / "training_metrics.json"
 
 RANDOM_STATE: Final[int] = 42
+TEST_SIZE: Final[float] = 0.25
 
 FEATURE_COLUMNS: Final[list[str]] = [
     "duration",
@@ -115,32 +121,55 @@ def generate_mock_cic_ids2017_dataset(
     logger.info("Generated mock dataset at %s with %d rows", output_path, len(dataset))
 
 
+def validate_dataset(dataset: pd.DataFrame) -> pd.DataFrame:
+    """Validate schema and labels before splitting to prevent misleading runs."""
+    required_columns = set(FEATURE_COLUMNS + [LABEL_COLUMN])
+    missing_columns = required_columns.difference(dataset.columns)
+    if missing_columns:
+        raise ValueError(f"Dataset missing required columns: {sorted(missing_columns)}")
+
+    cleaned = dataset.replace([np.inf, -np.inf], np.nan).dropna().copy()
+    if cleaned.empty:
+        raise ValueError("Dataset contains no usable rows after removing NaN/inf values")
+
+    labels = cleaned[LABEL_COLUMN].astype(int)
+    unique_labels = set(labels.unique().tolist())
+    if unique_labels != {0, 1}:
+        raise ValueError(
+            "Dataset labels must contain both binary classes 0 (benign) and 1 (attack); "
+            f"found {sorted(unique_labels)}"
+        )
+
+    class_counts = labels.value_counts()
+    if int(class_counts.min()) < 4:
+        raise ValueError(
+            "Each class must contain at least 4 usable rows for a stratified train/test split"
+        )
+
+    cleaned[LABEL_COLUMN] = labels
+    return cleaned
+
+
 def load_dataset(dataset_path: Path) -> pd.DataFrame:
     """Load training data and validate the required feature schema."""
     if not dataset_path.exists():
         generate_mock_cic_ids2017_dataset(dataset_path)
 
-    dataset = pd.read_csv(dataset_path)
-    required_columns = set(FEATURE_COLUMNS + [LABEL_COLUMN])
-    missing_columns = required_columns.difference(dataset.columns)
-
-    if missing_columns:
-        raise ValueError(f"Dataset missing required columns: {sorted(missing_columns)}")
-
-    dataset = dataset.replace([np.inf, -np.inf], np.nan).dropna()
+    dataset = validate_dataset(pd.read_csv(dataset_path))
     logger.info("Loaded dataset with shape %s", dataset.shape)
     return dataset
 
 
 def train_model(dataset: pd.DataFrame) -> tuple[RandomForestClassifier, dict]:
     """Train and evaluate the Random Forest IDS classifier."""
+    dataset = validate_dataset(dataset)
     x = dataset[FEATURE_COLUMNS]
-    y = dataset[LABEL_COLUMN].astype(int)
+    y = dataset[LABEL_COLUMN]
 
     x_train, x_test, y_train, y_test = train_test_split(
         x,
         y,
-        test_size=0.25,
+        test_size=TEST_SIZE,
         stratify=y,
         random_state=RANDOM_STATE,
     )
@@ -159,18 +188,55 @@ def train_model(dataset: pd.DataFrame) -> tuple[RandomForestClassifier, dict]:
     model.fit(x_train, y_train)
 
     predictions = model.predict(x_test)
-    report = classification_report(y_test, predictions, output_dict=True)
-    matrix = confusion_matrix(y_test, predictions).tolist()
+    attack_probabilities = model.predict_proba(x_test)[:, 1]
+    report = classification_report(
+        y_test,
+        predictions,
+        labels=[0, 1],
+        output_dict=True,
+        zero_division=0,
+    )
+    matrix = confusion_matrix(y_test, predictions, labels=[0, 1])
+    tn, fp, fn, tp = matrix.ravel()
+
+    false_positive_rate = float(fp / (fp + tn)) if (fp + tn) else 0.0
+    false_negative_rate = float(fn / (fn + tp)) if (fn + tp) else 0.0
 
     metrics = {
         "classification_report": report,
-        "confusion_matrix": matrix,
+        "confusion_matrix": matrix.tolist(),
+        "roc_auc": float(np.clip(roc_auc_score(y_test, attack_probabilities), 0.0, 1.0)),
+        "average_precision": float(
+            np.clip(average_precision_score(y_test, attack_probabilities), 0.0, 1.0)
+        ),
+        "false_positive_rate": false_positive_rate,
+        "false_negative_rate": false_negative_rate,
         "feature_columns": FEATURE_COLUMNS,
         "training_rows": int(len(x_train)),
         "test_rows": int(len(x_test)),
+        "class_distribution": {
+            "train": {str(k): int(v) for k, v in y_train.value_counts().items()},
+            "test": {str(k): int(v) for k, v in y_test.value_counts().items()},
+        },
+        "evaluation_protocol": {
+            "split": "stratified_holdout",
+            "test_size": TEST_SIZE,
+            "random_state": RANDOM_STATE,
+            "positive_class": 1,
+        },
     }
 
-    logger.info("Model evaluation:\n%s", classification_report(y_test, predictions))
+    logger.info(
+        "Model evaluation:\n%s",
+        classification_report(y_test, predictions, labels=[0, 1], zero_division=0),
+    )
+    logger.info(
+        "ROC-AUC=%.4f AP=%.4f FPR=%.4f FNR=%.4f",
+        metrics["roc_auc"],
+        metrics["average_precision"],
+        false_positive_rate,
+        false_negative_rate,
+    )
     return model, metrics
 
 
