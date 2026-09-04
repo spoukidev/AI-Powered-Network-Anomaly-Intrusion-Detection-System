@@ -132,7 +132,11 @@ def validate_dataset(dataset: pd.DataFrame) -> pd.DataFrame:
     if cleaned.empty:
         raise ValueError("Dataset contains no usable rows after removing NaN/inf values")
 
-    labels = cleaned[LABEL_COLUMN].astype(int)
+    try:
+        labels = pd.to_numeric(cleaned[LABEL_COLUMN], errors="raise")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Dataset labels must be numeric binary values 0 and 1") from exc
+
     unique_labels = set(labels.unique().tolist())
     if unique_labels != {0, 1}:
         raise ValueError(
@@ -146,7 +150,7 @@ def validate_dataset(dataset: pd.DataFrame) -> pd.DataFrame:
             "Each class must contain at least 4 usable rows for a stratified train/test split"
         )
 
-    cleaned[LABEL_COLUMN] = labels
+    cleaned[LABEL_COLUMN] = labels.astype(int)
     return cleaned
 
 
