@@ -122,13 +122,27 @@ def generate_mock_cic_ids2017_dataset(
 
 
 def validate_dataset(dataset: pd.DataFrame) -> pd.DataFrame:
-    """Validate schema and labels before splitting to prevent misleading runs."""
+    """Validate schema, numeric features, and labels before splitting."""
     required_columns = set(FEATURE_COLUMNS + [LABEL_COLUMN])
     missing_columns = required_columns.difference(dataset.columns)
     if missing_columns:
         raise ValueError(f"Dataset missing required columns: {sorted(missing_columns)}")
 
-    cleaned = dataset.replace([np.inf, -np.inf], np.nan).dropna().copy()
+    cleaned = dataset.copy()
+    invalid_features: list[str] = []
+    for feature in FEATURE_COLUMNS:
+        try:
+            cleaned[feature] = pd.to_numeric(cleaned[feature], errors="raise")
+        except (TypeError, ValueError):
+            invalid_features.append(feature)
+
+    if invalid_features:
+        raise ValueError(
+            "Dataset features must contain numeric values; invalid columns: "
+            f"{sorted(invalid_features)}"
+        )
+
+    cleaned = cleaned.replace([np.inf, -np.inf], np.nan).dropna().copy()
     if cleaned.empty:
         raise ValueError("Dataset contains no usable rows after removing NaN/inf values")
 
