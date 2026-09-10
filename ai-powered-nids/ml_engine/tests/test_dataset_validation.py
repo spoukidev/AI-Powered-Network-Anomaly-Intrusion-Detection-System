@@ -41,6 +41,24 @@ class DatasetValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "at least 4 usable rows"):
             validate_dataset(pd.DataFrame(rows))
 
+    def test_non_numeric_feature_is_rejected_with_column_name(self) -> None:
+        rows = [make_row(index % 2, float(index + 1)) for index in range(8)]
+        invalid_feature = FEATURE_COLUMNS[2]
+        rows[0][invalid_feature] = "not-a-number"
+
+        with self.assertRaisesRegex(ValueError, invalid_feature):
+            validate_dataset(pd.DataFrame(rows))
+
+    def test_numeric_strings_are_normalized_to_numeric_features(self) -> None:
+        rows = [make_row(index % 2, float(index + 1)) for index in range(8)]
+        numeric_string_feature = FEATURE_COLUMNS[1]
+        rows[0][numeric_string_feature] = "12.5"
+
+        validated = validate_dataset(pd.DataFrame(rows))
+
+        self.assertEqual(validated.loc[0, numeric_string_feature], 12.5)
+        self.assertTrue(pd.api.types.is_numeric_dtype(validated[numeric_string_feature]))
+
 
 if __name__ == "__main__":
     unittest.main()
