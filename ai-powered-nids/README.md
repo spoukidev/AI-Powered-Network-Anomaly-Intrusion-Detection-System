@@ -77,6 +77,31 @@ The repository includes starter data so the project is not empty:
 During a full demo, the detector can also keep appending fresh mock Zeek events
 when `MOCK_LOG_PRODUCER=true`.
 
+## Reproducibility and Evidence Boundaries
+
+The default compose demo is designed to be repeatable, but it is not a benchmark
+on a public intrusion-detection dataset. The included CSV is synthetic,
+CIC-IDS2017-like seed data and the default log producer emits mock Zeek events.
+Therefore, demo alerts and training metrics should be treated as pipeline smoke
+test evidence, not as measured real-world detection performance.
+
+For a reviewable experiment, record the following alongside any reported result:
+
+1. Git commit SHA and the exact command used (`docker compose up --build` or
+   `python train_model.py`).
+2. The dataset identifier, source, class distribution, and any filtering or
+   feature-engineering choices.
+3. The train/test split strategy and random seed used by the training script.
+4. The generated `ml_engine/models/training_metrics.json` and the model file
+   checksum (for example, `sha256sum`).
+5. The alert threshold and the date/time window represented by the input logs.
+
+The Python dependency versions are pinned in
+`ml_engine/requirements.txt` to reduce environment drift. Replacing the demo
+inputs with real CIC-IDS2017, UNSW-NB15, or organization-specific data requires
+re-running validation and reporting precision, recall, F1-score, ROC-AUC, class
+support, and false-positive rate for that dataset.
+
 ## Elasticsearch Indices
 
 The detector creates two indices:
