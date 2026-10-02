@@ -12,6 +12,7 @@ The trained model consumes features extracted from Zeek JSON conn.log records.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import pickle
@@ -62,6 +63,15 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | train_model | %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def sha256_file(path: Path) -> str:
+    """Return the SHA-256 digest of a dataset/model input file."""
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def generate_mock_cic_ids2017_dataset(
@@ -288,6 +298,12 @@ def main() -> None:
 
     dataset = load_dataset(DATASET_PATH)
     model, metrics = train_model(dataset)
+    metrics["dataset_artifact"] = {
+        "path": str(DATASET_PATH),
+        "sha256": sha256_file(DATASET_PATH),
+        "bytes": DATASET_PATH.stat().st_size,
+    }
+    model, metrics = model, metrics
     save_model_bundle(model, metrics)
 
 
