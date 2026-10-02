@@ -303,7 +303,6 @@ def main() -> None:
         "sha256": sha256_file(DATASET_PATH),
         "bytes": DATASET_PATH.stat().st_size,
     }
-    model, metrics = model, metrics
     save_model_bundle(model, metrics)
 
 
