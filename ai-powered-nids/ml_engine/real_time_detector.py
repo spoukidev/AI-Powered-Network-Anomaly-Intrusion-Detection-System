@@ -215,6 +215,28 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def event_timestamp(event: dict[str, Any]) -> str:
+    """Return the event time as ISO-8601 UTC.
+
+    Zeek's JSON writer emits ``ts`` as epoch seconds (e.g. ``1700000000.123``),
+    which Elasticsearch would misread as epoch milliseconds. ISO strings (as
+    produced by the mock producer) are passed through unchanged.
+    """
+    ts = event.get("ts")
+    if ts in (None, ""):
+        return now_iso()
+    if isinstance(ts, str):
+        try:
+            seconds = float(ts)
+        except ValueError:
+            return ts
+    elif isinstance(ts, (int, float)):
+        seconds = float(ts)
+    else:
+        return now_iso()
+    return datetime.fromtimestamp(seconds, tz=timezone.utc).isoformat()
+
+
 def classify_event(
     event: dict[str, Any],
     model: Any,
@@ -239,7 +261,7 @@ def build_flow_document(
 ) -> dict[str, Any]:
     """Build a normalized flow document for Elasticsearch."""
     document = dict(event)
-    document["@timestamp"] = event.get("ts") or now_iso()
+    document["@timestamp"] = event_timestamp(event)
     document["prediction"] = prediction
     document["anomaly_score"] = anomaly_score
     return document
@@ -255,7 +277,7 @@ def build_alert_document(
     severity = "critical" if anomaly_score >= 0.90 else "high"
 
     return {
-        "@timestamp": event.get("ts") or now_iso(),
+        "@timestamp": event_timestamp(event),
         "severity": severity,
         "anomaly_score": anomaly_score,
         "src_ip": src_ip,

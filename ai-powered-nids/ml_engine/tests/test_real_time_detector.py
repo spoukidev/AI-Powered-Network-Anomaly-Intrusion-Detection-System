@@ -55,6 +55,14 @@ class DocumentTests(unittest.TestCase):
         self.assertEqual(doc["@timestamp"], "2026-01-01T00:00:00+00:00")
         self.assertEqual(doc["prediction"], "benign")
 
+    def test_zeek_epoch_timestamps_are_converted_to_iso(self) -> None:
+        # Real Zeek JSON logs write ts as epoch seconds (e.g. 1700000000.123456).
+        # Elasticsearch would read a bare number as epoch *milliseconds*.
+        doc = rtd.build_flow_document({"ts": 1700000000.5}, "benign", 0.1)
+        self.assertEqual(doc["@timestamp"], "2023-11-14T22:13:20.500000+00:00")
+        alert = rtd.build_alert_document({"ts": "1700000000"}, 0.8)
+        self.assertEqual(alert["@timestamp"], "2023-11-14T22:13:20+00:00")
+
 
 if __name__ == "__main__":
     unittest.main()
