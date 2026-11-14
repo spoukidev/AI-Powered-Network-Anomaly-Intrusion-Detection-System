@@ -188,12 +188,12 @@ def load_dataset(dataset_path: Path) -> pd.DataFrame:
     return dataset
 
 
-def train_model(dataset: pd.DataFrame) -> tuple[RandomForestClassifier, dict]:
-    """Train and evaluate the Random Forest IDS classifier."""
-    dataset = validate_dataset(dataset)
+def split_dataset(
+    dataset: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    """Return the stratified train/test split shared by training and evaluation."""
     x = dataset[FEATURE_COLUMNS]
     y = dataset[LABEL_COLUMN]
-
     x_train, x_test, y_train, y_test = train_test_split(
         x,
         y,
@@ -201,8 +201,12 @@ def train_model(dataset: pd.DataFrame) -> tuple[RandomForestClassifier, dict]:
         stratify=y,
         random_state=RANDOM_STATE,
     )
+    return x_train, x_test, y_train, y_test
 
-    model = RandomForestClassifier(
+
+def build_random_forest() -> RandomForestClassifier:
+    """Return the (unfitted) Random Forest configuration used in production."""
+    return RandomForestClassifier(
         n_estimators=250,
         max_depth=18,
         min_samples_split=4,
@@ -211,6 +215,13 @@ def train_model(dataset: pd.DataFrame) -> tuple[RandomForestClassifier, dict]:
         n_jobs=-1,
         random_state=RANDOM_STATE,
     )
+
+
+def train_model(dataset: pd.DataFrame) -> tuple[RandomForestClassifier, dict]:
+    """Train and evaluate the Random Forest IDS classifier."""
+    dataset = validate_dataset(dataset)
+    x_train, x_test, y_train, y_test = split_dataset(dataset)
+    model = build_random_forest()
 
     logger.info("Training Random Forest classifier")
     model.fit(x_train, y_train)
