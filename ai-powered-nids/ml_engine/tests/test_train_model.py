@@ -1,3 +1,5 @@
+import json
+import pickle
 import sys
 import tempfile
 import unittest
@@ -12,6 +14,7 @@ from train_model import (  # noqa: E402
     FEATURE_COLUMNS,
     generate_mock_cic_ids2017_dataset,
     load_dataset,
+    main,
     train_model,
 )
 
@@ -52,6 +55,23 @@ class TrainingPipelineTests(unittest.TestCase):
         self.assertEqual(protocol["split"], "stratified_holdout")
         self.assertEqual(protocol["positive_class"], 1)
         self.assertEqual(set(metrics["class_distribution"]["test"]), {"0", "1"})
+
+    def test_cli_trains_on_custom_dataset_and_model_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset = Path(temp_dir) / "flows.csv"
+            model_dir = Path(temp_dir) / "out"
+            generate_mock_cic_ids2017_dataset(dataset, normal_rows=60, attack_rows=40)
+
+            main(["--dataset", str(dataset), "--model-dir", str(model_dir)])
+
+            with (model_dir / "random_forest_ids.pkl").open("rb") as file:
+                bundle = pickle.load(file)
+            metrics = json.loads((model_dir / "training_metrics.json").read_text())
+
+        self.assertEqual(bundle["feature_columns"], FEATURE_COLUMNS)
+        self.assertTrue(hasattr(bundle["model"], "predict_proba"))
+        self.assertEqual(metrics["dataset_artifact"]["path"], str(dataset))
+        self.assertEqual(len(metrics["dataset_artifact"]["sha256"]), 64)
 
 
 if __name__ == "__main__":

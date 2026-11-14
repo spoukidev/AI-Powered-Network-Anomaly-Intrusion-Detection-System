@@ -12,6 +12,7 @@ The trained model consumes features extracted from Zeek JSON conn.log records.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import logging
@@ -267,9 +268,15 @@ def train_model(dataset: pd.DataFrame) -> tuple[RandomForestClassifier, dict]:
     return model, metrics
 
 
-def save_model_bundle(model: RandomForestClassifier, metrics: dict) -> None:
+def save_model_bundle(
+    model: RandomForestClassifier,
+    metrics: dict,
+    model_path: Path = MODEL_PATH,
+    metrics_path: Path = METRICS_PATH,
+) -> None:
     """Persist the estimator plus metadata required by inference services."""
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
 
     bundle = {
         "model": model,
@@ -280,29 +287,59 @@ def save_model_bundle(model: RandomForestClassifier, metrics: dict) -> None:
         "metrics": metrics,
     }
 
-    with MODEL_PATH.open("wb") as file:
+    with model_path.open("wb") as file:
         pickle.dump(bundle, file)
 
-    with METRICS_PATH.open("w", encoding="utf-8") as file:
+    with metrics_path.open("w", encoding="utf-8") as file:
         json.dump(metrics, file, indent=2)
 
-    logger.info("Saved model bundle to %s", MODEL_PATH)
-    logger.info("Saved metrics to %s", METRICS_PATH)
+    logger.info("Saved model bundle to %s", model_path)
+    logger.info("Saved metrics to %s", metrics_path)
 
 
-def main() -> None:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line options; the defaults reproduce the Docker demo."""
+    parser = argparse.ArgumentParser(
+        description="Train the Random Forest IDS model on a labeled flow CSV.",
+    )
+    parser.add_argument(
+        "--dataset",
+        type=Path,
+        default=DATASET_PATH,
+        help=(
+            "CSV with the feature columns plus a binary 'label' column "
+            f"(default: {DATASET_PATH.relative_to(BASE_DIR)}). A mock dataset is "
+            "generated here if the file does not exist."
+        ),
+    )
+    parser.add_argument(
+        "--model-dir",
+        type=Path,
+        default=MODEL_DIR,
+        help=f"Where to write {MODEL_PATH.name} and {METRICS_PATH.name} (default: models/).",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
     """Run the complete model training workflow."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    args = parse_args(argv)
+    dataset_path: Path = args.dataset
+    model_dir: Path = args.model_dir
 
-    dataset = load_dataset(DATASET_PATH)
+    dataset = load_dataset(dataset_path)
     model, metrics = train_model(dataset)
     metrics["dataset_artifact"] = {
-        "path": str(DATASET_PATH),
-        "sha256": sha256_file(DATASET_PATH),
-        "bytes": DATASET_PATH.stat().st_size,
+        "path": str(dataset_path),
+        "sha256": sha256_file(dataset_path),
+        "bytes": dataset_path.stat().st_size,
     }
-    save_model_bundle(model, metrics)
+    save_model_bundle(
+        model,
+        metrics,
+        model_path=model_dir / MODEL_PATH.name,
+        metrics_path=model_dir / METRICS_PATH.name,
+    )
 
 
 if __name__ == "__main__":
