@@ -44,11 +44,17 @@ The project is evolving around several questions relevant to modern AI-security 
 4. Can explainability techniques make alerts more useful to security analysts?
 5. How well does a model generalize across different traffic captures or datasets?
 
+## Evaluation and Offline Scoring
+
+- `python evaluate_model.py` compares a majority-class baseline, logistic regression and the Random Forest (precision, recall, F1, ROC-AUC, FPR/FNR, confusion matrices, cost). It also ranks features by permutation importance and recommends alert thresholds for a false-positive budget.
+- `python score_logs.py conn.log` scores saved Zeek logs (JSON or tab-separated, optionally gzipped) without Elasticsearch.
+
+See [`ai-powered-nids/README.md`](./ai-powered-nids/README.md) for options.
+
 ## Planned Research Extensions
 
-- Compare multiple baseline models and report precision, recall, F1-score, ROC-AUC, and confusion matrices.
-- Add feature-importance analysis and SHAP-based explanations.
-- Evaluate class imbalance and threshold calibration.
+- Add SHAP-based explanations for individual alerts.
+- Evaluate class imbalance and probability calibration.
 - Test cross-dataset generalization.
 - Explore evasion attacks against ML-based IDS models.
 - Investigate adversarial training and robust feature selection.

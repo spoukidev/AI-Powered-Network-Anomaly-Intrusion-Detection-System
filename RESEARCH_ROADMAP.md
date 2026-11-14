@@ -2,24 +2,27 @@
 
 This roadmap turns the AI-powered NIDS project from a software demonstration into a reproducible cybersecurity research project.
 
+Status markers: **[done]** means a script in `ai-powered-nids/ml_engine` implements the
+step. It still has to be run on real data to produce research evidence.
+
 ## Phase 1 — Reproducible Baseline
 
 - Document the dataset or traffic-capture source.
 - Record the train/validation/test split strategy.
-- Establish simple baselines before complex models.
-- Report precision, recall, F1-score and confusion matrices in addition to accuracy.
-- Fix random seeds where applicable so experiments can be repeated.
+- **[done]** Establish simple baselines before complex models (`evaluate_model.py`).
+- **[done]** Report precision, recall, F1-score and confusion matrices in addition to accuracy.
+- **[done]** Fix random seeds where applicable so experiments can be repeated.
 
 ## Phase 2 — Detection Analysis
 
 - Measure per-class detection performance.
-- Study false positives and false negatives.
-- Identify the features that contribute most strongly to predictions.
-- Compare model complexity, inference cost and detection quality.
+- **[done]** Study false positives and false negatives (FPR/FNR and threshold sweep).
+- **[done]** Identify the features that contribute most strongly to predictions.
+- **[done]** Compare model complexity, inference cost and detection quality.
 
 ## Phase 3 — Explainable IDS
 
-- Add global feature-importance analysis.
+- **[done]** Add global feature-importance analysis (permutation + impurity).
 - Evaluate SHAP or another explanation method for individual alerts.
 - Investigate whether explanations are stable across similar network events.
 
