@@ -46,7 +46,22 @@ MOCK_LOG_PRODUCER: Final[bool] = os.getenv(
     "MOCK_LOG_PRODUCER",
     "true",
 ).lower() == "true"
-ALERT_THRESHOLD: Final[float] = float(os.getenv("ALERT_THRESHOLD", "0.70"))
+
+
+def parse_threshold(raw: str | None, default: float = 0.70) -> float:
+    """Parse an attack-probability threshold and require it to be in [0, 1]."""
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"ALERT_THRESHOLD must be a number between 0 and 1, got {raw!r}") from exc
+    if not 0.0 <= value <= 1.0:
+        raise ValueError(f"ALERT_THRESHOLD must be between 0 and 1, got {value}")
+    return value
+
+
+ALERT_THRESHOLD: Final[float] = parse_threshold(os.getenv("ALERT_THRESHOLD"))
 
 POLL_INTERVAL_SECONDS: Final[float] = 0.5
 ELASTIC_RETRY_SECONDS: Final[int] = 5
@@ -66,8 +81,15 @@ def handle_shutdown(signum: int, _frame: Any) -> None:
     shutdown_event.set()
 
 
-signal.signal(signal.SIGINT, handle_shutdown)
-signal.signal(signal.SIGTERM, handle_shutdown)
+def install_signal_handlers() -> None:
+    """Stop the detector cleanly on Ctrl+C and on ``docker compose down``.
+
+    Registered from ``run_detector`` rather than at import time so that
+    importing this module (tests, notebooks, other tools) does not hijack the
+    caller's signal handling.
+    """
+    signal.signal(signal.SIGINT, handle_shutdown)
+    signal.signal(signal.SIGTERM, handle_shutdown)
 
 
 class ZeekFeatureExtractor:
@@ -171,7 +193,7 @@ class ElasticsearchSink:
             (ALERT_INDEX, alert_mapping),
         ):
             if not self.client.indices.exists(index=index_name):
-                self.client.indices.create(index=index_name, body=mapping)
+                self.client.indices.create(index=index_name, mappings=mapping["mappings"])
                 logger.info("Created Elasticsearch index: %s", index_name)
 
     def index_flow(self, document: dict[str, Any]) -> None:
@@ -225,6 +247,8 @@ def event_timestamp(event: dict[str, Any]) -> str:
     """
     ts = event.get("ts")
     if ts in (None, ""):
+        return now_iso()
+    if isinstance(ts, bool):
         return now_iso()
     if isinstance(ts, str):
         try:
@@ -296,25 +320,66 @@ def build_alert_document(
     }
 
 
-def tail_file(path: Path) -> Iterator[str]:
+def tail_file(
+    path: Path,
+    *,
+    from_start: bool = False,
+    poll_interval: float = POLL_INTERVAL_SECONDS,
+) -> Iterator[str]:
     """
-    Tail a file forever and yield new lines.
+    Tail a file until shutdown and yield complete, non-empty lines.
 
     The function creates the file if missing, which makes local demos smooth.
+    It also copes with two things a live Zeek sensor does:
+
+    * Lines are only yielded once their trailing newline has been written, so
+      a record that is still being flushed is never parsed half-finished.
+    * When Zeek rotates ``conn.log`` (the path now points at a new file) or the
+      file is truncated, the new file is reopened and read from the start.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.touch(exist_ok=True)
 
-    with path.open("r", encoding="utf-8") as file:
-        file.seek(0, os.SEEK_END)
+    file = path.open("r", encoding="utf-8")
+    try:
+        if not from_start:
+            file.seek(0, os.SEEK_END)
+        inode = os.fstat(file.fileno()).st_ino
+        pending = ""
 
         while not shutdown_event.is_set():
-            line = file.readline()
+            chunk = file.readline()
+            if chunk:
+                pending += chunk
+                if pending.endswith("\n"):
+                    line = pending.strip()
+                    pending = ""
+                    if line:
+                        yield line
+                continue
 
-            if line:
-                yield line.strip()
-            else:
-                time.sleep(POLL_INTERVAL_SECONDS)
+            if _file_was_replaced(path, inode, file.tell()):
+                logger.info("Zeek log %s was rotated or truncated; reopening", path)
+                file.close()
+                path.touch(exist_ok=True)
+                file = path.open("r", encoding="utf-8")
+                inode = os.fstat(file.fileno()).st_ino
+                pending = ""
+                continue
+
+            time.sleep(poll_interval)
+    finally:
+        file.close()
+
+
+def _file_was_replaced(path: Path, inode: int, position: int) -> bool:
+    """Return True when ``path`` is a different or shorter file than the open one."""
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        # Mid-rotation: the old file is gone and the new one is not there yet.
+        return False
+    return stat.st_ino != inode or stat.st_size < position
 
 
 def generate_mock_zeek_event() -> dict[str, Any]:
@@ -375,6 +440,7 @@ def mock_log_producer(path: Path) -> None:
 
 def run_detector() -> None:
     """Run the detector service loop."""
+    install_signal_handlers()
     bundle = load_model_bundle(MODEL_PATH)
     model = bundle["model"]
     extractor = ZeekFeatureExtractor(bundle["feature_columns"])
