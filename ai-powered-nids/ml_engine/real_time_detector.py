@@ -100,9 +100,9 @@ class ZeekFeatureExtractor:
 
     def transform(self, event: dict[str, Any]) -> pd.DataFrame:
         """Return a one-row DataFrame ordered exactly like training data."""
-        proto = str(event.get("proto", "")).lower()
-        service = str(event.get("service", "")).lower()
-        history = str(event.get("history", ""))
+        proto = self._to_text(event.get("proto")).lower()
+        service = self._to_text(event.get("service")).lower()
+        history = self._to_text(event.get("history"))
 
         features = {
             "duration": self._to_float(event.get("duration")),
@@ -120,6 +120,13 @@ class ZeekFeatureExtractor:
 
         ordered = {column: features.get(column, 0.0) for column in self.feature_columns}
         return pd.DataFrame([ordered])
+
+    @staticmethod
+    def _to_text(value: Any) -> str:
+        """Return a string field, treating missing/null/unset ('-') as empty."""
+        if value is None or value == "-":
+            return ""
+        return str(value)
 
     @staticmethod
     def _to_float(value: Any) -> float:

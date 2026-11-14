@@ -30,6 +30,18 @@ class FeatureExtractorTests(unittest.TestCase):
         self.assertEqual(row["duration"], 1.5)
         self.assertEqual(row["resp_bytes"], 0.0)
 
+    def test_null_and_unset_text_fields_count_as_empty(self) -> None:
+        # Zeek TSV marks unset fields with "-"; JSON producers may emit null.
+        extractor = rtd.ZeekFeatureExtractor(list(FEATURE_COLUMNS))
+        for unset in (None, "-"):
+            with self.subTest(unset=unset):
+                row = extractor.transform(
+                    {"history": unset, "proto": unset, "service": unset}
+                ).iloc[0]
+                self.assertEqual(row["history_len"], 0.0)
+                self.assertEqual(row["proto_tcp"] + row["proto_udp"], 0.0)
+                self.assertEqual(row["service_http"] + row["service_dns"], 0.0)
+
     def test_mock_events_have_every_feature_input(self) -> None:
         extractor = rtd.ZeekFeatureExtractor(list(FEATURE_COLUMNS))
         frame = extractor.transform(rtd.generate_mock_zeek_event())
