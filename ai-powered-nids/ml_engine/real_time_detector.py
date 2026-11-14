@@ -273,8 +273,12 @@ def classify_event(
     event: dict[str, Any],
     model: Any,
     extractor: ZeekFeatureExtractor,
+    threshold: float | None = None,
 ) -> tuple[str, float]:
-    """Run ML inference and return prediction label plus attack probability."""
+    """Run ML inference and return prediction label plus attack probability.
+
+    ``threshold`` defaults to the ``ALERT_THRESHOLD`` environment setting.
+    """
     frame = extractor.transform(event)
 
     if hasattr(model, "predict_proba"):
@@ -282,7 +286,8 @@ def classify_event(
     else:
         probability = float(model.predict(frame)[0])
 
-    prediction = "attack" if probability >= ALERT_THRESHOLD else "benign"
+    cutoff = ALERT_THRESHOLD if threshold is None else threshold
+    prediction = "attack" if probability >= cutoff else "benign"
     return prediction, probability
 
 
