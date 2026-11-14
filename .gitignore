@@ -10,6 +10,7 @@ venv/
 
 ai-powered-nids/ml_engine/models/*.pkl
 ai-powered-nids/ml_engine/models/*.json
+ai-powered-nids/ml_engine/models/*.md
 ai-powered-nids/ml_engine/data/*.generated.csv
 ai-powered-nids/zeek_logs/*.rotated
 

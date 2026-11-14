@@ -152,6 +152,81 @@ ml_engine/models/random_forest_ids.pkl
 ml_engine/models/training_metrics.json
 ```
 
+To train on your own labeled flows (for example a CIC-IDS2017 or UNSW-NB15
+export mapped to the feature columns below plus a binary `label` column):
+
+```bash
+python train_model.py --dataset data/my_flows.csv --model-dir models/my_run
+```
+
+## Evaluating the Model
+
+`evaluate_model.py` produces the evidence the research roadmap asks for, using
+the same stratified hold-out split and seed as training:
+
+```bash
+cd ml_engine
+python evaluate_model.py                                  # bundled demo data
+python evaluate_model.py --dataset data/my_flows.csv --target-fpr 0.005
+```
+
+It writes `models/evaluation_report.json` and a Markdown version,
+`models/evaluation_report.md`, with three sections:
+
+1. **Model comparison**: a majority-class baseline, a scaled logistic
+   regression and the production Random Forest. Each gets precision, recall,
+   F1, ROC-AUC, average precision, false-positive and false-negative rates,
+   training time and inference cost per flow.
+2. **Feature importance**: permutation importance (the drop in test F1 when a
+   feature is shuffled, with its spread) next to the forest's impurity
+   importance.
+3. **Alert threshold analysis**: precision, recall, F1 and FPR across
+   thresholds from 0.05 to 0.95, the F1-optimal threshold, the threshold with
+   the best recall inside the `--target-fpr` budget, and how the detector's
+   current `ALERT_THRESHOLD` (`--alert-threshold`, default 0.70) performs.
+
+| Option | Default | Description |
+|---|---|---|
+| `--dataset` | `data/mock_cic_ids2017.csv` | Labeled flow CSV |
+| `--output-dir` | `models/` | Where to write the reports |
+| `--target-fpr` | `0.01` | False-positive budget for the threshold recommendation |
+| `--alert-threshold` | `0.70` | Deployed threshold to report on |
+| `--permutation-repeats` | `10` | Shuffles per feature for permutation importance |
+
+The bundled synthetic data is almost perfectly separable, so every
+non-trivial model scores near 1.0 on it. Use real captures before drawing
+conclusions from the comparison.
+
+## Scoring Saved Zeek Logs Offline
+
+`score_logs.py` runs the detector's feature extraction, model and alert logic
+over Zeek logs you already have. It needs no Elasticsearch, so it is the
+quickest way to check a lab capture or a PCAP replayed through Zeek
+(`zeek -r capture.pcap`):
+
+```bash
+cd ml_engine
+python train_model.py                      # once, to create the model
+python score_logs.py ../zeek_logs/conn.log --alerts alerts.jsonl
+python score_logs.py /opt/zeek/logs/2026-06-10/conn.*.log.gz --threshold 0.8 --output scored.jsonl
+```
+
+It reads both Zeek formats: JSON (`LogAscii::use_json=T`) and Zeek's default
+tab-separated logs with `#fields`/`#types` headers. Gzipped files work too. It
+prints a JSON summary (flows scored, records skipped, alert count and rate,
+severity breakdown, top alerting source IPs and destination ports, highest
+score) and can write every scored flow (`--output`) and every alert
+(`--alerts`) as JSON lines in the same shape the detector sends to
+Elasticsearch.
+
+| Option | Default | Description |
+|---|---|---|
+| `--model` | `$MODEL_PATH` or `models/random_forest_ids.pkl` | Model bundle |
+| `--threshold` | `$ALERT_THRESHOLD` or `0.70` | Attack-probability threshold for alerts |
+| `--output` | none | JSON lines file with every scored flow |
+| `--alerts` | none | JSON lines file with alerts only |
+| `--fail-on-alert` | off | Exit with status 2 if any alert is raised |
+
 ## Running Detection Manually
 
 Start Elasticsearch first, then run:
@@ -171,7 +246,21 @@ Useful environment variables:
 | `ALERT_INDEX` | `ids-alerts` | Elasticsearch alert index |
 | `FLOW_INDEX` | `ids-flows` | Elasticsearch flow index |
 | `MOCK_LOG_PRODUCER` | `true` | Enables synthetic Zeek logs |
-| `ALERT_THRESHOLD` | `0.70` | Attack probability threshold |
+| `ALERT_THRESHOLD` | `0.70` | Attack probability threshold, between 0 and 1 |
+
+The detector only processes complete lines and reopens `conn.log` when Zeek
+rotates or truncates it.
+
+## Development
+
+```bash
+cd ml_engine
+pip install -r requirements-dev.txt
+ruff check .
+python -m unittest discover -s tests -v
+```
+
+CI runs the same lint and tests on every push and pull request.
 
 ## Zeek Log Format
 
@@ -224,9 +313,11 @@ For production deployment, improve the following:
 - Add model drift monitoring.
 - Add authentication and TLS for Elasticsearch and Kibana.
 - Replace the mock log producer with a real Zeek sensor.
-- Add CI/CD, unit tests, and model validation gates.
+- Add model validation gates to CI (for example, fail on an F1 drop in
+  `evaluate_model.py`).
 - Add alert deduplication and case management integration.
-- Tune thresholds using precision, recall, F1-score, and false positive rate.
+- Tune `ALERT_THRESHOLD` on real traffic with `evaluate_model.py`'s threshold
+  analysis.
 
 ## Project Value
 
