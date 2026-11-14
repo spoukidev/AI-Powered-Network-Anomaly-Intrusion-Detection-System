@@ -22,8 +22,11 @@ from pathlib import Path
 from typing import Any, Final, Iterator
 
 import pandas as pd
-from elasticsearch import Elasticsearch
-from elasticsearch import ElasticsearchException
+from elasticsearch import ApiError, Elasticsearch, TransportError
+
+# elasticsearch-py 8.x removed ElasticsearchException; these two cover API
+# errors (4xx/5xx responses) and transport failures (connection, timeout).
+ELASTICSEARCH_ERRORS: Final = (ApiError, TransportError)
 
 
 ELASTICSEARCH_URL: Final[str] = os.getenv(
@@ -119,7 +122,7 @@ class ElasticsearchSink:
                 if self.client.ping():
                     logger.info("Connected to Elasticsearch at %s", ELASTICSEARCH_URL)
                     return
-            except ElasticsearchException as exc:
+            except ELASTICSEARCH_ERRORS as exc:
                 logger.warning("Elasticsearch is not ready: %s", exc)
 
             logger.info(
@@ -390,7 +393,7 @@ def run_detector() -> None:
             else:
                 logger.info("Benign flow scored %.2f", anomaly_score)
 
-        except ElasticsearchException as exc:
+        except ELASTICSEARCH_ERRORS as exc:
             logger.error("Failed to index event in Elasticsearch: %s", exc)
         except Exception as exc:
             logger.exception("Unexpected detector error: %s", exc)
