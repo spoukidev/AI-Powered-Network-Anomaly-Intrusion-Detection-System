@@ -46,7 +46,11 @@ class ParsingTests(unittest.TestCase):
 
 class DocumentTests(unittest.TestCase):
     def test_alert_severity_thresholds(self) -> None:
-        event = {"id.orig_h": "192.168.1.5", "id.resp_h": "10.0.0.9", "ts": "2026-01-01T00:00:00+00:00"}
+        event = {
+            "id.orig_h": "192.168.1.5",
+            "id.resp_h": "10.0.0.9",
+            "ts": "2026-01-01T00:00:00+00:00",
+        }
         self.assertEqual(rtd.build_alert_document(event, 0.95)["severity"], "critical")
         self.assertEqual(rtd.build_alert_document(event, 0.75)["severity"], "high")
 

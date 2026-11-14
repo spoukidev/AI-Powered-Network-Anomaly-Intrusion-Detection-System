@@ -30,7 +30,6 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split
 
-
 BASE_DIR: Final[Path] = Path(__file__).resolve().parent
 DATA_DIR: Final[Path] = BASE_DIR / "data"
 MODEL_DIR: Final[Path] = BASE_DIR / "models"
@@ -133,7 +132,7 @@ def generate_mock_cic_ids2017_dataset(
 
 def validate_dataset(dataset: pd.DataFrame) -> pd.DataFrame:
     """Validate schema, numeric features, and labels before splitting."""
-    required_columns = set(FEATURE_COLUMNS + [LABEL_COLUMN])
+    required_columns = {*FEATURE_COLUMNS, LABEL_COLUMN}
     missing_columns = required_columns.difference(dataset.columns)
     if missing_columns:
         raise ValueError(f"Dataset missing required columns: {sorted(missing_columns)}")
@@ -240,8 +239,8 @@ def train_model(dataset: pd.DataFrame) -> tuple[RandomForestClassifier, dict]:
         "false_positive_rate": false_positive_rate,
         "false_negative_rate": false_negative_rate,
         "feature_columns": FEATURE_COLUMNS,
-        "training_rows": int(len(x_train)),
-        "test_rows": int(len(x_test)),
+        "training_rows": len(x_train),
+        "test_rows": len(x_test),
         "class_distribution": {
             "train": {str(k): int(v) for k, v in y_train.value_counts().items()},
             "test": {str(k): int(v) for k, v in y_test.value_counts().items()},

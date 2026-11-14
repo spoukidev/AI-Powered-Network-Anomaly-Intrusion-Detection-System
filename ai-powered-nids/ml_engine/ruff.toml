@@ -1,0 +1,6 @@
+# Lint configuration for the ML engine. CI runs `ruff check .` from this folder.
+target-version = "py311"  # matches python:3.11-slim in docker-compose.yml
+line-length = 100
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "RUF", "TRY401"]

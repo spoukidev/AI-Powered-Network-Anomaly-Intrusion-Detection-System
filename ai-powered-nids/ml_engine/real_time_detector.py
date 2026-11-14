@@ -17,9 +17,10 @@ import random
 import signal
 import threading
 import time
-from datetime import datetime, timezone
+from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final, Iterator
+from typing import Any, Final
 
 import pandas as pd
 from elasticsearch import ApiError, Elasticsearch, TransportError
@@ -212,7 +213,7 @@ def parse_json_line(line: str) -> dict[str, Any] | None:
 
 def now_iso() -> str:
     """Return an ISO-8601 UTC timestamp for Elasticsearch."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def event_timestamp(event: dict[str, Any]) -> str:
@@ -234,7 +235,7 @@ def event_timestamp(event: dict[str, Any]) -> str:
         seconds = float(ts)
     else:
         return now_iso()
-    return datetime.fromtimestamp(seconds, tz=timezone.utc).isoformat()
+    return datetime.fromtimestamp(seconds, tz=UTC).isoformat()
 
 
 def classify_event(
@@ -417,8 +418,8 @@ def run_detector() -> None:
 
         except ELASTICSEARCH_ERRORS as exc:
             logger.error("Failed to index event in Elasticsearch: %s", exc)
-        except Exception as exc:
-            logger.exception("Unexpected detector error: %s", exc)
+        except Exception:
+            logger.exception("Unexpected detector error")
 
 
 if __name__ == "__main__":
