@@ -1,8 +1,32 @@
 # AI-Powered Network Anomaly & Intrusion Detection System
 
+[![CI](https://github.com/spoukidev/AI-Powered-Network-Anomaly-Intrusion-Detection-System/actions/workflows/ci.yml/badge.svg)](https://github.com/spoukidev/AI-Powered-Network-Anomaly-Intrusion-Detection-System/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A cybersecurity research project exploring machine-learning-based network intrusion detection using network telemetry, feature engineering, and supervised learning.
 
 > **Research direction:** AI for cybersecurity, network intrusion detection, adversarial machine learning, explainable AI, and robust anomaly detection.
+
+## Quick start
+
+Requires Docker with Docker Compose.
+
+```bash
+git clone https://github.com/spoukidev/AI-Powered-Network-Anomaly-Intrusion-Detection-System.git
+cd AI-Powered-Network-Anomaly-Intrusion-Detection-System/ai-powered-nids
+docker compose up --build
+```
+
+This starts Elasticsearch (`http://localhost:9200`), Kibana (`http://localhost:5601`), the ML engine, a mock Zeek log producer and the real-time detector. The engine trains a Random Forest on the bundled synthetic CIC-IDS2017-like seed data, tails `zeek_logs/conn.log` and writes flows and alerts to the `ids-flows` and `ids-alerts` indices. The bundled data is synthetic, so demo alerts and metrics are pipeline smoke tests, not detection benchmarks.
+
+Run the ML engine tests without Docker (Python 3.11):
+
+```bash
+cd ai-powered-nids/ml_engine
+python -m pip install -r requirements-dev.txt
+python -m unittest discover -s tests -v
+```
+
+See [`ai-powered-nids/README.md`](./ai-powered-nids/README.md) for architecture, configuration and Kibana details.
 
 ## Project
 
