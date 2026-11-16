@@ -247,6 +247,12 @@ Useful environment variables:
 | `FLOW_INDEX` | `ids-flows` | Elasticsearch flow index |
 | `MOCK_LOG_PRODUCER` | `true` | Enables synthetic Zeek logs |
 | `ALERT_THRESHOLD` | `0.70` | Attack probability threshold, between 0 and 1 |
+| `ALERT_DEDUP_SECONDS` | `60` | Suppress repeat alerts for the same (src IP, dst IP, dst port, proto) within this many seconds; `0` disables |
+
+Repeated alerts for one flow tuple (a port scan, a brute-force burst) are
+collapsed: the first alert is indexed, duplicates inside the window are only
+counted, and the next alert for that tuple records how many it absorbed in
+`suppressed_duplicates`. Every flow is still written to the flows index.
 
 The detector only processes complete lines and reopens `conn.log` when Zeek
 rotates or truncates it.
@@ -315,7 +321,7 @@ For production deployment, improve the following:
 - Replace the mock log producer with a real Zeek sensor.
 - Add model validation gates to CI (for example, fail on an F1 drop in
   `evaluate_model.py`).
-- Add alert deduplication and case management integration.
+- Add case management integration.
 - Tune `ALERT_THRESHOLD` on real traffic with `evaluate_model.py`'s threshold
   analysis.
 

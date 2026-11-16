@@ -39,6 +39,7 @@ services:
       - FLOW_INDEX=ids-flows
       - MOCK_LOG_PRODUCER=true
       - ALERT_THRESHOLD=0.70
+      - ALERT_DEDUP_SECONDS=60
     volumes:
       - ./ml_engine:/app
       - ./zeek_logs:/app/zeek_logs

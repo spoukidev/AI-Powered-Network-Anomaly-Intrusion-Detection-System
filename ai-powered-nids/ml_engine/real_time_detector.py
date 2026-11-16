@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import pickle
 import random
@@ -62,6 +63,22 @@ def parse_threshold(raw: str | None, default: float = 0.70) -> float:
 
 
 ALERT_THRESHOLD: Final[float] = parse_threshold(os.getenv("ALERT_THRESHOLD"))
+
+
+def parse_dedup_window(raw: str | None, default: float = 60.0) -> float:
+    """Parse ALERT_DEDUP_SECONDS; 0 disables deduplication."""
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"ALERT_DEDUP_SECONDS must be a number >= 0, got {raw!r}") from exc
+    if not value >= 0.0 or value == float("inf"):
+        raise ValueError(f"ALERT_DEDUP_SECONDS must be a finite number >= 0, got {value}")
+    return value
+
+
+ALERT_DEDUP_SECONDS: Final[float] = parse_dedup_window(os.getenv("ALERT_DEDUP_SECONDS"))
 
 POLL_INTERVAL_SECONDS: Final[float] = 0.5
 ELASTIC_RETRY_SECONDS: Final[int] = 5
@@ -191,6 +208,7 @@ class ElasticsearchSink:
                     "proto": {"type": "keyword"},
                     "service": {"type": "keyword"},
                     "reason": {"type": "text"},
+                    "suppressed_duplicates": {"type": "integer"},
                 }
             }
         }
@@ -332,6 +350,82 @@ def build_alert_document(
     }
 
 
+AlertKey = tuple[str, str, str, str]
+
+
+class AlertDeduplicator:
+    """Collapse repeated alerts for the same flow tuple inside a time window.
+
+    A scan or brute-force attempt produces hundreds of near-identical flows; each
+    one would otherwise become its own alert. Alerts are keyed on
+    (src_ip, dst_ip, dst_port, proto). The first alert for a key is emitted;
+    repeats within ``window_seconds`` of it are suppressed and counted, and the
+    next emitted alert for that key carries the number it absorbed in
+    ``suppressed_duplicates``. Flow documents are still indexed for every event,
+    so nothing is lost from the flows index. A window of 0 disables suppression.
+    """
+
+    def __init__(self, window_seconds: float, max_keys: int = 100_000) -> None:
+        self.window_seconds = window_seconds
+        self.max_keys = max_keys
+        self._first_seen: dict[AlertKey, float] = {}
+        self._suppressed: dict[AlertKey, int] = {}
+
+    @staticmethod
+    def key_for(alert: dict[str, Any]) -> AlertKey:
+        return (
+            str(alert.get("src_ip") or ""),
+            str(alert.get("dst_ip") or ""),
+            str(alert.get("dst_port") or ""),
+            str(alert.get("proto") or ""),
+        )
+
+    def should_emit(self, alert: dict[str, Any], now: float) -> bool:
+        """Return True if ``alert`` should be indexed, annotating it if so."""
+        if self.window_seconds <= 0:
+            return True
+        key = self.key_for(alert)
+        started = self._first_seen.get(key)
+        if started is not None and 0 <= now - started < self.window_seconds:
+            self._suppressed[key] = self._suppressed.get(key, 0) + 1
+            return False
+        if len(self._first_seen) >= self.max_keys:
+            self._prune(now)
+        alert["suppressed_duplicates"] = self._suppressed.pop(key, 0)
+        self._first_seen[key] = now
+        return True
+
+    def _prune(self, now: float) -> None:
+        expired = [k for k, t in self._first_seen.items() if now - t >= self.window_seconds]
+        if not expired:
+            # Still full: drop the oldest half to bound memory.
+            ordered = sorted(self._first_seen, key=self._first_seen.__getitem__)
+            expired = ordered[: len(ordered) // 2]
+        for key in expired:
+            self._first_seen.pop(key, None)
+            self._suppressed.pop(key, None)
+
+
+def event_epoch(event: dict[str, Any], fallback: float) -> float:
+    """Event ``ts`` (epoch seconds or ISO-8601) as epoch seconds, else ``fallback``."""
+    ts = event.get("ts")
+    if isinstance(ts, bool) or ts in (None, ""):
+        return fallback
+    try:
+        value = float(ts)
+    except (TypeError, ValueError):
+        if not isinstance(ts, str):
+            return fallback
+        try:
+            parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            return fallback
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.timestamp()
+    return value if math.isfinite(value) else fallback
+
+
 def tail_file(
     path: Path,
     *,
@@ -469,6 +563,7 @@ def run_detector() -> None:
         )
         producer.start()
 
+    deduplicator = AlertDeduplicator(ALERT_DEDUP_SECONDS)
     logger.info("Tailing Zeek log: %s", ZEEK_CONN_LOG)
 
     for line in tail_file(ZEEK_CONN_LOG):
@@ -484,13 +579,21 @@ def run_detector() -> None:
 
             if prediction == "attack":
                 alert_document = build_alert_document(event, anomaly_score)
-                sink.index_alert(alert_document)
-                logger.warning(
-                    "ALERT src=%s dst=%s score=%.2f",
-                    alert_document["src_ip"],
-                    alert_document["dst_ip"],
-                    anomaly_score,
-                )
+                if deduplicator.should_emit(alert_document, event_epoch(event, time.time())):
+                    sink.index_alert(alert_document)
+                    logger.warning(
+                        "ALERT src=%s dst=%s score=%.2f (suppressed %d duplicates)",
+                        alert_document["src_ip"],
+                        alert_document["dst_ip"],
+                        anomaly_score,
+                        alert_document["suppressed_duplicates"],
+                    )
+                else:
+                    logger.info(
+                        "Duplicate alert suppressed src=%s dst=%s",
+                        alert_document["src_ip"],
+                        alert_document["dst_ip"],
+                    )
             else:
                 logger.info("Benign flow scored %.2f", anomaly_score)
 
