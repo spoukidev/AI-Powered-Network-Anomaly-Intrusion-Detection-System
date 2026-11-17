@@ -30,3 +30,7 @@ jobs:
         run: ruff check --output-format=github .
       - name: Unit tests
         run: python -m unittest discover -s tests -v
+      - name: Evaluate model on bundled data
+        run: python evaluate_model.py --output-dir "$RUNNER_TEMP/eval" --permutation-repeats 2
+      - name: Model-quality gate
+        run: python check_model_quality.py --report "$RUNNER_TEMP/eval/evaluation_report.json"
