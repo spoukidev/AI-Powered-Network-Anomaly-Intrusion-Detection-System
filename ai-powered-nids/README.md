@@ -197,6 +197,23 @@ The bundled synthetic data is almost perfectly separable, so every
 non-trivial model scores near 1.0 on it. Use real captures before drawing
 conclusions from the comparison.
 
+### Model-quality gate
+
+`check_model_quality.py` turns the evaluation report into a pass/fail check.
+CI runs it after `evaluate_model.py` on every push and pull request:
+
+```bash
+python evaluate_model.py --output-dir models
+python check_model_quality.py --report models/evaluation_report.json \
+    --min-recall 0.90 --min-f1 0.90 --max-fpr 0.05 --min-baseline-margin 0.10
+```
+
+It checks the Random Forest at both the 0.5 comparison threshold and the
+deployed alert threshold, and requires its F1 to beat the majority-class
+baseline. It exits 1 and lists every failed check when the model regresses,
+or 2 when the report is missing or malformed. Tighten the thresholds once
+the gate runs on real traffic data.
+
 ## Scoring Saved Zeek Logs Offline
 
 `score_logs.py` runs the detector's feature extraction, model and alert logic
@@ -319,8 +336,6 @@ For production deployment, improve the following:
 - Add model drift monitoring.
 - Add authentication and TLS for Elasticsearch and Kibana.
 - Replace the mock log producer with a real Zeek sensor.
-- Add model validation gates to CI (for example, fail on an F1 drop in
-  `evaluate_model.py`).
 - Add case management integration.
 - Tune `ALERT_THRESHOLD` on real traffic with `evaluate_model.py`'s threshold
   analysis.
